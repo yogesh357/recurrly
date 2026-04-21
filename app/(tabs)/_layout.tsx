@@ -1,16 +1,24 @@
 import { tabs } from "@/constants/data";
-import { SplashScreen, Tabs } from "expo-router";
+import { useAuth } from "@clerk/expo";
+import { Redirect, Tabs } from "expo-router";
 import { View, Image } from "react-native";
 import clsx from 'clsx'
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, components } from "@/constants/theme";
 
-SplashScreen.preventAutoHideAsync();
-
 const tabBar = components.tabBar;
 
 export default function TabLayout() {
     const insets = useSafeAreaInsets();
+    const { isLoaded, isSignedIn } = useAuth();
+
+    if (!isLoaded) {
+        return null;
+    }
+
+    if (!isSignedIn) {
+        return <Redirect href="/(auth)/sign-in" />;
+    }
 
     const TabIcons = ({ focused, icon }: TabIconProps) => {
         return (
