@@ -127,7 +127,7 @@
     }
 
     .upcoming-icon {
-        @apply size-14;
+        @apply size-10;
     }
 
     .upcoming-price {
@@ -417,4 +417,4 @@
     .category-chip-text-active {
         @apply text-accent;
     }
-}   
+}
