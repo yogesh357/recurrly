@@ -1,3 +1,4 @@
+import CreateSubscriptionModal from "@/components/CreateSubscriptionModal";
 import ListHeading from "@/components/ListHeading";
 import SubscriptionCard from "@/components/SubscriptionCard";
 import UpcomingSubscriptionCard from "@/components/UpcomingSubscriptionCard";
@@ -20,7 +21,8 @@ export default function App() {
   const { user } = useUser();
   const posthog = usePostHog();
   const [expandedSubscriptionId, setExpandedSubscriptionId] = useState<string | null>(null);
-  const { subscriptions } = useSubscriptionStore();
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const { subscriptions, addSubscription } = useSubscriptionStore();
 
   // Get upcoming subscriptions (active subscriptions with renewal date within next 7 days)
   // const upcomingSubscriptions = useMemo(() => {
@@ -57,13 +59,24 @@ export default function App() {
       }));
   }, [subscriptions]);
 
-
   const handleSubscriptionPress = (item: Subscription) => {
     const isExpanding = expandedSubscriptionId !== item.id;
     setExpandedSubscriptionId((currentId) => (currentId === item.id ? null : item.id));
     posthog.capture(isExpanding ? 'subscription_expanded' : 'subscription_collapsed', {
       subscription_name: item.name,
       subscription_id: item.id,
+    });
+  };
+
+  const handleCreateSubscription = (newSubscription: Subscription) => {
+    addSubscription(newSubscription);
+    setIsModalVisible(false);
+    posthog.capture('subscription_created', {
+      subscription_name: newSubscription.name,
+      subscription_price: newSubscription.price,
+      subscription_frequency: newSubscription.billing,
+      subscription_category: newSubscription.category?.toString() || 'Uncategorized',
+      subscription_id: newSubscription.id,
     });
   };
 
@@ -85,10 +98,9 @@ export default function App() {
               </View>
 
               <Pressable
-                disabled
                 accessibilityRole="button"
-                accessibilityLabel="Add subscription coming soon"
-                className="opacity-40"
+                accessibilityLabel="Add subscription"
+                onPress={() => setIsModalVisible(true)}
               >
                 <Image source={icons.add} className="home-add-icon" />
               </Pressable>
@@ -137,6 +149,12 @@ export default function App() {
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={<Text className="home-empty-state">No subscriptions yet.</Text>}
         contentContainerClassName="pb-30"
+      />
+
+      <CreateSubscriptionModal
+        visible={isModalVisible}
+        onClose={() => setIsModalVisible(false)}
+        onSubmit={handleCreateSubscription}
       />
     </SafeAreaView>
   );
