@@ -17,7 +17,7 @@ if (!publishableKey) {
 const clerkPublishableKey: string = publishableKey;
 
 SplashScreen.preventAutoHideAsync();
-
+ 
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
