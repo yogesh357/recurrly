@@ -1,7 +1,7 @@
 import ListHeading from "@/components/ListHeading";
 import SubscriptionCard from "@/components/SubscriptionCard";
 import UpcomingSubscriptionCard from "@/components/UpcomingSubscriptionCard";
-import { HOME_BALANCE, UPCOMING_SUBSCRIPTIONS } from "@/constants/data";
+import { HOME_BALANCE } from "@/constants/data";
 import { icons } from "@/constants/icons";
 import images from "@/constants/images";
 import "@/global.css";
@@ -23,16 +23,40 @@ export default function App() {
   const { subscriptions } = useSubscriptionStore();
 
   // Get upcoming subscriptions (active subscriptions with renewal date within next 7 days)
+  // const upcomingSubscriptions = useMemo(() => {
+  //   const now = dayjs();
+  //   const nextWeek = now.add(7, 'days');
+
+  //   return subscriptions.filter(sub =>
+  //     sub.status === 'active' &&
+  //     dayjs(sub.renewalDate).isAfter(now) &&
+  //     dayjs(sub.renewalDate).isBefore(nextWeek)
+  //   ).sort((a, b) => dayjs(a.renewalDate).diff(dayjs(b.renewalDate)));
+  // }, [subscriptions]);
+
   const upcomingSubscriptions = useMemo(() => {
     const now = dayjs();
     const nextWeek = now.add(7, 'days');
 
-    return subscriptions.filter(sub =>
-      sub.status === 'active' &&
-      dayjs(sub.renewalDate).isAfter(now) &&
-      dayjs(sub.renewalDate).isBefore(nextWeek)
-    ).sort((a, b) => dayjs(a.renewalDate).diff(dayjs(b.renewalDate)));
+    return subscriptions
+      .filter(
+        (sub) =>
+          sub.status === 'active' &&
+          sub.renewalDate &&
+          dayjs(sub.renewalDate).isAfter(now) &&
+          dayjs(sub.renewalDate).isBefore(nextWeek)
+      )
+      .sort((a, b) => dayjs(a.renewalDate).diff(dayjs(b.renewalDate)))
+      .map((sub) => ({
+        id: sub.id,
+        icon: sub.icon,
+        name: sub.name,
+        price: sub.price,
+        currency: sub.currency,
+        daysLeft: dayjs(sub.renewalDate).diff(now, 'day'),
+      }));
   }, [subscriptions]);
+
 
   const handleSubscriptionPress = (item: Subscription) => {
     const isExpanding = expandedSubscriptionId !== item.id;
@@ -87,7 +111,7 @@ export default function App() {
               <ListHeading title="Upcoming" />
 
               <FlatList
-                data={UPCOMING_SUBSCRIPTIONS}
+                data={upcomingSubscriptions}
                 renderItem={({ item }) => (<UpcomingSubscriptionCard {...item} />)}
                 keyExtractor={(item) => item.id}
                 horizontal

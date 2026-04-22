@@ -222,6 +222,46 @@
         @apply font-sans-bold text-background;
     }
 
+    .subs-header {
+        @apply mb-5 gap-2;
+    }
+
+    .subs-title {
+        @apply text-3xl font-sans-extrabold text-primary;
+    }
+
+    .subs-subtitle {
+        @apply text-sm font-sans-medium text-muted-foreground;
+    }
+
+    .subs-search-wrap {
+        @apply mb-4;
+    }
+
+    .subs-search-input {
+        @apply rounded-2xl border border-border bg-card px-4 py-4 text-base font-sans-medium text-primary;
+    }
+
+    .subs-summary-row {
+        @apply mb-5 flex-row items-center justify-between gap-3;
+    }
+
+    .subs-summary-text {
+        @apply text-sm font-sans-semibold text-muted-foreground;
+    }
+
+    .subs-empty-state {
+        @apply rounded-3xl border border-dashed border-border bg-card px-5 py-8;
+    }
+
+    .subs-empty-title {
+        @apply text-lg font-sans-bold text-primary;
+    }
+
+    .subs-empty-copy {
+        @apply mt-2 text-sm font-sans-medium text-muted-foreground;
+    }
+
     .home-empty-state {
         @apply py-4 text-sm font-sans-medium text-black/60;
     }
