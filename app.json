@@ -41,7 +41,7 @@
           }
         }
       ],
-       [
+      [
         "expo-font",
         {
           "fonts": [
@@ -53,7 +53,8 @@
             "./assets/fonts/PlusJakartaSans-Light.ttf"
           ]
         }
-      ]
+      ],
+      "expo-localization"
     ],
     "experiments": {
       "typedRoutes": true,
