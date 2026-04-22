@@ -1,37 +1,75 @@
-import "@/global.css";
-import { FlatList, Image, Text, View } from "react-native";
-import { Link } from "expo-router";
-import { styled } from "nativewind";
-import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
-import images from "@/constants/images";
-import { HOME_BALANCE, HOME_SUBSCRIPTIONS, HOME_USER, UPCOMING_SUBSCRIPTIONS } from "@/constants/data";
-import { icons } from "@/constants/icons";
-import dayjs from "dayjs";
-import { formatCurrency } from "@/lib/utils";
 import ListHeading from "@/components/ListHeading";
-import UpcomingSubscriptionCard from "@/components/UpcomingSubscriptionCard";
 import SubscriptionCard from "@/components/SubscriptionCard";
-import { useState } from "react";
-
+import UpcomingSubscriptionCard from "@/components/UpcomingSubscriptionCard";
+import { HOME_BALANCE, UPCOMING_SUBSCRIPTIONS } from "@/constants/data";
+import { icons } from "@/constants/icons";
+import images from "@/constants/images";
+import "@/global.css";
+import { useSubscriptionStore } from "@/lib/subscriptionStore";
+import { formatCurrency } from "@/lib/utils";
+import { useUser } from '@clerk/expo';
+import dayjs from "dayjs";
+import { styled } from "nativewind";
+import { usePostHog } from 'posthog-react-native';
+import { useMemo, useState } from "react";
+import { FlatList, Image, Pressable, Text, View } from "react-native";
+import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
 const SafeAreaView = styled(RNSafeAreaView);
 
 export default function App() {
+  const { user } = useUser();
+  const posthog = usePostHog();
   const [expandedSubscriptionId, setExpandedSubscriptionId] = useState<string | null>(null);
+  const { subscriptions } = useSubscriptionStore();
 
+  // Get upcoming subscriptions (active subscriptions with renewal date within next 7 days)
+  const upcomingSubscriptions = useMemo(() => {
+    const now = dayjs();
+    const nextWeek = now.add(7, 'days');
+
+    return subscriptions.filter(sub =>
+      sub.status === 'active' &&
+      dayjs(sub.renewalDate).isAfter(now) &&
+      dayjs(sub.renewalDate).isBefore(nextWeek)
+    ).sort((a, b) => dayjs(a.renewalDate).diff(dayjs(b.renewalDate)));
+  }, [subscriptions]);
+
+  const handleSubscriptionPress = (item: Subscription) => {
+    const isExpanding = expandedSubscriptionId !== item.id;
+    setExpandedSubscriptionId((currentId) => (currentId === item.id ? null : item.id));
+    posthog.capture(isExpanding ? 'subscription_expanded' : 'subscription_collapsed', {
+      subscription_name: item.name,
+      subscription_id: item.id,
+    });
+  };
+
+  // Get user display name: firstName, fullName, or email
+  const displayName = user?.firstName || user?.fullName || user?.emailAddresses[0]?.emailAddress || 'User';
 
   return (
-    <SafeAreaView className="flex-1  bg-background p-5">
-
+    <SafeAreaView className="flex-1 bg-background p-5">
       <FlatList
         ListHeaderComponent={() => (
           <>
             <View className="home-header">
               <View className="home-user">
-                <Image source={images.avatar} className="home-avatar" />
-                <Text className="home-user-name">{HOME_USER.name}</Text>
+                <Image
+                  source={user?.imageUrl ? { uri: user.imageUrl } : images.avatar}
+                  className="home-avatar"
+                />
+                <Text className="home-user-name">{displayName}</Text>
               </View>
-              <Image source={icons.add} className="home-add-icon" />
+
+              <Pressable
+                disabled
+                accessibilityRole="button"
+                accessibilityLabel="Add subscription coming soon"
+                className="opacity-40"
+              >
+                <Image source={icons.add} className="home-add-icon" />
+              </Pressable>
             </View>
+
             <View className="home-balance-card">
               <Text className="home-balance-label">Balance</Text>
 
@@ -46,36 +84,36 @@ export default function App() {
             </View>
 
             <View className="mb-5">
-              <ListHeading title="Upcomming" />
-              <FlatList data={UPCOMING_SUBSCRIPTIONS}
+              <ListHeading title="Upcoming" />
+
+              <FlatList
+                data={UPCOMING_SUBSCRIPTIONS}
+                renderItem={({ item }) => (<UpcomingSubscriptionCard {...item} />)}
                 keyExtractor={(item) => item.id}
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                ListEmptyComponent={<Text className="home-empty-state" >No Upcoming renewals yet .</Text>}
-                renderItem={({ item }) => (
-                  <UpcomingSubscriptionCard {...item} />
-                )} />
+                ListEmptyComponent={<Text className="home-empty-state">No upcoming renewals yet.</Text>}
+              />
             </View>
 
             <ListHeading title="All Subscriptions" />
           </>
         )}
-        data={HOME_SUBSCRIPTIONS}
+        data={subscriptions}
         keyExtractor={(item) => item.id}
-        ListEmptyComponent={<Text className="home-empty-state" >No subscriptions found .</Text>}
         renderItem={({ item }) => (
           <SubscriptionCard
+            {...item}
             expanded={expandedSubscriptionId === item.id}
-            onPress={() => setExpandedSubscriptionId((currentId) => (
-              currentId === item.id ? null : item.id
-            ))}
-            {...item} />
+            onPress={() => handleSubscriptionPress(item)}
+          />
         )}
         extraData={expandedSubscriptionId}
-        ItemSeparatorComponent={() => <View className="h-4 " />}
+        ItemSeparatorComponent={() => <View className="h-4" />}
         showsVerticalScrollIndicator={false}
+        ListEmptyComponent={<Text className="home-empty-state">No subscriptions yet.</Text>}
         contentContainerClassName="pb-30"
       />
-    </SafeAreaView >
+    </SafeAreaView>
   );
 }
