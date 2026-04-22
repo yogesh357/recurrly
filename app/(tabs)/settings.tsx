@@ -1,15 +1,24 @@
 import { useClerk, useUser } from '@clerk/expo';
-import { Text, View, Pressable } from 'react-native'
 import React from 'react'
-
-
+import { usePostHog } from 'posthog-react-native';
+import { Pressable, Text, View } from 'react-native'
 import { styled } from "nativewind";
 import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
 
 const SafeAreaView = styled(RNSafeAreaView);
-const settings = () => {
+const Settings = () => {
     const { signOut } = useClerk();
     const { user } = useUser();
+    const posthog = usePostHog();
+
+    const handleSignOut = async () => {
+        try {
+            await signOut({ redirectUrl: '/(auth)/sign-in' });
+            posthog.reset();
+        } catch (error) {
+            console.error('Failed to sign out:', error);
+        }
+    };
 
     return (
         <SafeAreaView className="flex-1  bg-background p-5">
@@ -21,7 +30,7 @@ const settings = () => {
 
                 <Pressable
                     className='mt-5 items-center rounded-2xl bg-primary py-4'
-                    onPress={() => signOut({ redirectUrl: '/(auth)/sign-in' })}
+                    onPress={() => void handleSignOut()}
                 >
                     <Text className='font-sans-bold text-background'>Sign out</Text>
                 </Pressable>
@@ -30,4 +39,4 @@ const settings = () => {
     )
 }
 
-export default settings
+export default Settings

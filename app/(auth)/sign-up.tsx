@@ -62,11 +62,15 @@ const SignUp = () => {
                         return;
                     }
 
-                    posthog.identify(emailAddress, {
-                        $set: { email: emailAddress },
-                        $set_once: { sign_up_date: new Date().toISOString() },
-                    });
-                    posthog.capture('user_signed_up', { email: emailAddress });
+                    const userId = session?.user?.id;
+                    if (!userId) {
+                        console.warn('Unable to identify PostHog user after sign-up.');
+                    } else {
+                        posthog.identify(userId, {
+                            $set_once: { sign_up_date: new Date().toISOString() },
+                        });
+                        posthog.capture('user_signed_up', { userId });
+                    }
 
                     const url = decorateUrl('/(tabs)');
                     if (url.startsWith('http')) {

@@ -8,6 +8,10 @@ import { SafeAreaView as RNSafeAreaView } from 'react-native-safe-area-context';
 
 const SafeAreaView = styled(RNSafeAreaView);
 
+type MfaStrategy = 'phone_code' | 'totp' | 'backup_code' | 'email_code';
+
+const SUPPORTED_MFA_STRATEGIES: MfaStrategy[] = ['phone_code', 'totp', 'backup_code', 'email_code'];
+
 const SignIn = () => {
     const { signIn, errors, fetchStatus } = useSignIn();
     const router = useRouter();
@@ -16,6 +20,8 @@ const SignIn = () => {
     const [emailAddress, setEmailAddress] = useState('');
     const [password, setPassword] = useState('');
     const [code, setCode] = useState('');
+    const [mfaStrategy, setMfaStrategy] = useState<MfaStrategy | null>(null);
+    const [authError, setAuthError] = useState<string | null>(null);
 
     // Validation states
     const [emailTouched, setEmailTouched] = useState(false);
@@ -25,10 +31,109 @@ const SignIn = () => {
     const emailValid = emailAddress.length === 0 || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailAddress);
     const passwordValid = password.length > 0;
     const formValid = emailAddress.length > 0 && password.length > 0 && emailValid;
+    const getSupportedMfaStrategies = () =>
+        (signIn.supportedSecondFactors ?? [])
+            .map((factor) => factor.strategy)
+            .filter((strategy): strategy is MfaStrategy => SUPPORTED_MFA_STRATEGIES.includes(strategy as MfaStrategy));
+
+    const supportedMfaStrategies = getSupportedMfaStrategies();
+
+    const getMfaStrategyLabel = (strategy: MfaStrategy) => {
+        switch (strategy) {
+            case 'phone_code':
+                return 'Phone Code';
+            case 'totp':
+                return 'Authenticator App';
+            case 'backup_code':
+                return 'Backup Code';
+            case 'email_code':
+                return 'Email Code';
+            default:
+                return 'Verification Code';
+        }
+    };
+
+    const trackSuccessfulSignIn = (userId?: string | null) => {
+        if (!userId) {
+            console.warn('Unable to identify PostHog user after sign-in.');
+            return;
+        }
+
+        posthog.identify(userId, {
+            $set_once: { first_sign_in_date: new Date().toISOString() },
+        });
+        posthog.capture('user_signed_in', { userId });
+    };
+
+    const navigateToApp = (url: string) => {
+        if (url.startsWith('http')) {
+            if (typeof window !== 'undefined' && window.location) {
+                window.location.href = url;
+            } else {
+                router.replace('/(tabs)' as Href);
+            }
+        } else {
+            router.replace(url as Href);
+        }
+    };
+
+    const finalizeSignIn = async () => {
+        await signIn.finalize({
+            navigate: ({ session, decorateUrl }) => {
+                if (session?.currentTask) {
+                    console.log(session.currentTask);
+                    return;
+                }
+
+                trackSuccessfulSignIn(session?.user?.id);
+                navigateToApp(decorateUrl('/(tabs)'));
+            },
+        });
+    };
+
+    const prepareSecondFactor = async (strategy: MfaStrategy) => {
+        setMfaStrategy(strategy);
+        setCode('');
+        setAuthError(null);
+
+        if (strategy === 'phone_code') {
+            const { error } = await signIn.mfa.sendPhoneCode();
+            if (error) {
+                setAuthError(error.message);
+            }
+        }
+
+        if (strategy === 'email_code') {
+            const { error } = await signIn.mfa.sendEmailCode();
+            if (error) {
+                setAuthError(error.message);
+            }
+        }
+    };
+
+    const handleResendCode = async () => {
+        setAuthError(null);
+
+        if (signIn.status === 'needs_client_trust' || mfaStrategy === 'email_code') {
+            const { error } = await signIn.mfa.sendEmailCode();
+            if (error) {
+                setAuthError(error.message);
+            }
+            return;
+        }
+
+        if (mfaStrategy === 'phone_code') {
+            const { error } = await signIn.mfa.sendPhoneCode();
+            if (error) {
+                setAuthError(error.message);
+            }
+        }
+    };
 
     const handleSubmit = async () => {
         if (!formValid) return;
 
+        setAuthError(null);
         const { error } = await signIn.password({
             emailAddress,
             password,
@@ -39,93 +144,93 @@ const SignIn = () => {
             posthog.capture('user_sign_in_failed', {
                 error_message: error.message,
             });
+            setAuthError(error.message);
             return;
         }
 
         if (signIn.status === 'complete') {
-            await signIn.finalize({
-                navigate: ({ session, decorateUrl }) => {
-                    if (session?.currentTask) {
-                        console.log(session?.currentTask);
-                        return;
-                    }
-
-                    posthog.identify(emailAddress, {
-                        $set: { email: emailAddress },
-                        $set_once: { first_sign_in_date: new Date().toISOString() },
-                    });
-                    posthog.capture('user_signed_in', { email: emailAddress });
-
-                    const url = decorateUrl('/(tabs)');
-                    if (url.startsWith('http')) {
-                        // Only use window.location on web platform
-                        if (typeof window !== 'undefined' && window.location) {
-                            window.location.href = url;
-                        } else {
-                            // On native, just use router navigation
-                            router.replace('/(tabs)' as Href);
-                        }
-                    } else {
-                        router.replace(url as Href);
-                    }
-                },
-            });
+            await finalizeSignIn();
         } else if (signIn.status === 'needs_second_factor') {
-            // Handle MFA if needed (not implemented in this basic flow)
-            console.log('MFA required');
-        } else if (signIn.status === 'needs_client_trust') {
-            // Send email code for client trust verification
-            const emailCodeFactor = signIn.supportedSecondFactors.find(
-                (factor) => factor.strategy === 'email_code'
-            );
+            const defaultStrategy = getSupportedMfaStrategies()[0];
 
-            if (emailCodeFactor) {
-                await signIn.mfa.sendEmailCode();
+            if (!defaultStrategy) {
+                setAuthError('A second factor is required, but no supported verification method is available.');
+                return;
+            }
+
+            await prepareSecondFactor(defaultStrategy);
+        } else if (signIn.status === 'needs_client_trust') {
+            setCode('');
+            const { error: resendError } = await signIn.mfa.sendEmailCode();
+            if (resendError) {
+                setAuthError(resendError.message);
             }
         } else {
             console.error('Sign-in attempt not complete:', signIn);
         }
     };
 
-    const handleVerify = async () => {
-        await signIn.mfa.verifyEmailCode({ code });
+    const handleClientTrustVerify = async () => {
+        setAuthError(null);
+        const { error } = await signIn.mfa.verifyEmailCode({ code });
+
+        if (error) {
+            setAuthError(error.message);
+            return;
+        }
 
         if (signIn.status === 'complete') {
-            await signIn.finalize({
-                navigate: ({ session, decorateUrl }) => {
-                    if (session?.currentTask) {
-                        console.log(session?.currentTask);
-                        return;
-                    }
-
-                    // Track successful sign-in after verification
-                    posthog.identify(emailAddress, {
-                        $set: { email: emailAddress },
-                        $set_once: { first_sign_in_date: new Date().toISOString() },
-                    });
-                    posthog.capture('user_signed_in', { email: emailAddress });
-
-                    const url = decorateUrl('/(tabs)');
-                    if (url.startsWith('http')) {
-                        // Only use window.location on web platform
-                        if (typeof window !== 'undefined' && window.location) {
-                            window.location.href = url;
-                        } else {
-                            // On native, just use router navigation
-                            router.replace('/(tabs)' as Href);
-                        }
-                    } else {
-                        router.replace(url as Href);
-                    }
-                },
-            });
+            await finalizeSignIn();
         } else {
             console.error('Sign-in attempt not complete:', signIn);
         }
     };
 
-    // Show verification screen if client trust is needed
-    if (signIn.status === 'needs_client_trust') {
+    const handleSecondFactorVerify = async () => {
+        if (!mfaStrategy) {
+            setAuthError('Choose a verification method to continue.');
+            return;
+        }
+
+        setAuthError(null);
+
+        let error = null;
+        switch (mfaStrategy) {
+            case 'phone_code':
+                ({ error } = await signIn.mfa.verifyPhoneCode({ code }));
+                break;
+            case 'totp':
+                ({ error } = await signIn.mfa.verifyTOTP({ code }));
+                break;
+            case 'backup_code':
+                ({ error } = await signIn.mfa.verifyBackupCode({ code }));
+                break;
+            case 'email_code':
+                ({ error } = await signIn.mfa.verifyEmailCode({ code }));
+                break;
+            default:
+                setAuthError('Unsupported verification method.');
+                return;
+        }
+
+        if (error) {
+            setAuthError(error.message);
+            return;
+        }
+
+        if (signIn.status === 'complete') {
+            await finalizeSignIn();
+        } else {
+            console.error('Sign-in attempt not complete:', signIn);
+        }
+    };
+
+    // Show verification screen if client trust or MFA is needed
+    if (signIn.status === 'needs_client_trust' || signIn.status === 'needs_second_factor') {
+        const isClientTrustVerification = signIn.status === 'needs_client_trust';
+        const verifyButtonDisabled =
+            !code || fetchStatus === 'fetching' || (!isClientTrustVerification && !mfaStrategy);
+
         return (
             <SafeAreaView className="auth-safe-area">
                 <KeyboardAvoidingView
@@ -149,53 +254,89 @@ const SignIn = () => {
                                         <Text className="auth-wordmark-sub">SUBSCRIPTIONS</Text>
                                     </View>
                                 </View>
-                                <Text className="auth-title">Verify your identity</Text>
+                                <Text className="auth-title">
+                                    {isClientTrustVerification ? 'Verify your identity' : 'Verify your sign in'}
+                                </Text>
                                 <Text className="auth-subtitle">
-                                    We sent a verification code to your email
+                                    {isClientTrustVerification
+                                        ? 'We sent a verification code to your email'
+                                        : `Enter your ${getMfaStrategyLabel(mfaStrategy ?? supportedMfaStrategies[0] ?? 'totp').toLowerCase()} to continue`}
                                 </Text>
                             </View>
 
                             {/* Verification Form */}
                             <View className="auth-card">
                                 <View className="auth-form">
+                                    {!isClientTrustVerification && supportedMfaStrategies.length > 1 && (
+                                        <View className="auth-field">
+                                            <Text className="auth-label">Verification Method</Text>
+                                            <View className="flex-row flex-wrap gap-2">
+                                                {supportedMfaStrategies.map((strategy) => (
+                                                    <Pressable
+                                                        key={strategy}
+                                                        className={`rounded-2xl border px-4 py-3 ${mfaStrategy === strategy ? 'border-primary bg-primary/10' : 'border-border bg-background'}`}
+                                                        onPress={() => void prepareSecondFactor(strategy)}
+                                                        disabled={fetchStatus === 'fetching'}
+                                                    >
+                                                        <Text
+                                                            className={`font-sans-medium ${mfaStrategy === strategy ? 'text-primary' : 'text-foreground'}`}
+                                                        >
+                                                            {getMfaStrategyLabel(strategy)}
+                                                        </Text>
+                                                    </Pressable>
+                                                ))}
+                                            </View>
+                                        </View>
+                                    )}
+
                                     <View className="auth-field">
                                         <Text className="auth-label">Verification Code</Text>
                                         <TextInput
                                             className="auth-input"
                                             value={code}
-                                            placeholder="Enter 6-digit code"
+                                            placeholder={mfaStrategy === 'backup_code' ? 'Enter backup code' : 'Enter verification code'}
                                             placeholderTextColor="rgba(0, 0, 0, 0.4)"
                                             onChangeText={setCode}
-                                            keyboardType="number-pad"
-                                            autoComplete="one-time-code"
-                                            maxLength={6}
+                                            keyboardType={mfaStrategy === 'backup_code' ? 'default' : 'number-pad'}
+                                            autoComplete={mfaStrategy === 'backup_code' ? undefined : 'one-time-code'}
+                                            autoCapitalize="none"
                                         />
                                         {errors.fields.code && (
                                             <Text className="auth-error">{errors.fields.code.message}</Text>
                                         )}
+                                        {authError && <Text className="auth-error">{authError}</Text>}
                                     </View>
 
                                     <Pressable
-                                        className={`auth-button ${(!code || fetchStatus === 'fetching') && 'auth-button-disabled'}`}
-                                        onPress={handleVerify}
-                                        disabled={!code || fetchStatus === 'fetching'}
+                                        className={`auth-button ${verifyButtonDisabled && 'auth-button-disabled'}`}
+                                        onPress={isClientTrustVerification ? handleClientTrustVerify : handleSecondFactorVerify}
+                                        disabled={verifyButtonDisabled}
                                     >
                                         <Text className="auth-button-text">
-                                            {fetchStatus === 'fetching' ? 'Verifying...' : 'Verify'}
+                                            {fetchStatus === 'fetching'
+                                                ? 'Verifying...'
+                                                : isClientTrustVerification
+                                                    ? 'Verify'
+                                                    : 'Verify Sign In'}
                                         </Text>
                                     </Pressable>
 
                                     <Pressable
                                         className="auth-secondary-button"
-                                        onPress={() => signIn.mfa.sendEmailCode()}
-                                        disabled={fetchStatus === 'fetching'}
+                                        onPress={() => void handleResendCode()}
+                                        disabled={
+                                            fetchStatus === 'fetching' ||
+                                            (!isClientTrustVerification &&
+                                                mfaStrategy !== 'phone_code' &&
+                                                mfaStrategy !== 'email_code')
+                                        }
                                     >
                                         <Text className="auth-secondary-button-text">Resend Code</Text>
                                     </Pressable>
 
                                     <Pressable
                                         className="auth-secondary-button"
-                                        onPress={() => signIn.reset()}
+                                        onPress={() => void signIn.reset()}
                                         disabled={fetchStatus === 'fetching'}
                                     >
                                         <Text className="auth-secondary-button-text">Start Over</Text>

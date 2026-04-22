@@ -5,24 +5,22 @@ import { HOME_BALANCE, UPCOMING_SUBSCRIPTIONS } from "@/constants/data";
 import { icons } from "@/constants/icons";
 import images from "@/constants/images";
 import "@/global.css";
+import { useSubscriptionStore } from "@/lib/subscriptionStore";
 import { formatCurrency } from "@/lib/utils";
+import { useUser } from '@clerk/expo';
 import dayjs from "dayjs";
 import { styled } from "nativewind";
-import { FlatList, Image, Pressable, Text, View } from "react-native";
-import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
-// import CreateSubscriptionModal from "@/components/CreateSubscriptionModal"; 
-import { useSubscriptionStore } from "@/lib/subscriptionStore";
-import { useUser } from '@clerk/expo';
 import { usePostHog } from 'posthog-react-native';
 import { useMemo, useState } from "react";
+import { FlatList, Image, Pressable, Text, View } from "react-native";
+import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
 const SafeAreaView = styled(RNSafeAreaView);
 
 export default function App() {
   const { user } = useUser();
   const posthog = usePostHog();
   const [expandedSubscriptionId, setExpandedSubscriptionId] = useState<string | null>(null);
-  const [isModalVisible, setIsModalVisible] = useState(false);
-  const { subscriptions, addSubscription } = useSubscriptionStore();
+  const { subscriptions } = useSubscriptionStore();
 
   // Get upcoming subscriptions (active subscriptions with renewal date within next 7 days)
   const upcomingSubscriptions = useMemo(() => {
@@ -45,16 +43,6 @@ export default function App() {
     });
   };
 
-  // const handleCreateSubscription = (newSubscription: Subscription) => {
-  //     addSubscription(newSubscription);
-  //     posthog.capture('subscription_created', {
-  //         subscription_name: newSubscription.name,
-  //         subscription_price: newSubscription.price,
-  //         subscription_frequency: newSubscription.frequency,
-  //         subscription_category: newSubscription.category,
-  //     });
-  // };
-
   // Get user display name: firstName, fullName, or email
   const displayName = user?.firstName || user?.fullName || user?.emailAddresses[0]?.emailAddress || 'User';
 
@@ -72,7 +60,12 @@ export default function App() {
                 <Text className="home-user-name">{displayName}</Text>
               </View>
 
-              <Pressable onPress={() => setIsModalVisible(true)}>
+              <Pressable
+                disabled
+                accessibilityRole="button"
+                accessibilityLabel="Add subscription coming soon"
+                className="opacity-40"
+              >
                 <Image source={icons.add} className="home-add-icon" />
               </Pressable>
             </View>
@@ -121,12 +114,6 @@ export default function App() {
         ListEmptyComponent={<Text className="home-empty-state">No subscriptions yet.</Text>}
         contentContainerClassName="pb-30"
       />
-
-      {/* <CreateSubscriptionModal
-                visible={isModalVisible}
-                onClose={() => setIsModalVisible(false)}
-                onSubmit={handleCreateSubscription}
-            /> */}
     </SafeAreaView>
   );
 }
